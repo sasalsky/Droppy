@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation & Website
+    url: https://iordv.github.io/Droppy/
+    about: Check the Droppy website for features, screenshots, and download
+  - name: ☕ Support Droppy
+    url: https://buymeacoffee.com/droppy
+    about: Buy me a coffee to support development!
