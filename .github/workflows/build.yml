@@ -1,0 +1,50 @@
+name: Build Droppy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Что в репозитории
+        run: |
+          ls -la
+          echo "--- схемы ---"
+          xcodebuild -list || true
+
+      - name: Сборка
+        run: |
+          set -e
+          if ls -d *.xcworkspace >/dev/null 2>&1; then
+            TARGET=$(ls -d *.xcworkspace | head -1); FLAG="-workspace"
+          else
+            TARGET=$(ls -d *.xcodeproj | head -1); FLAG="-project"
+          fi
+          echo "Проект: $TARGET"
+          SCHEME=$(xcodebuild $FLAG "$TARGET" -list -json \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); c=d.get('workspace') or d.get('project'); print(c['schemes'][0])")
+          echo "Схема: $SCHEME"
+          xcodebuild $FLAG "$TARGET" -scheme "$SCHEME" \
+            -configuration Release \
+            -derivedDataPath build \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Упаковать .app
+        run: |
+          APP=$(find build/Build/Products -maxdepth 3 -name "*.app" | head -1)
+          echo "Собрано: $APP"
+          ditto -c -k --keepParent "$APP" Droppy.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Droppy-app
+          path: Droppy.zip
+          retention-days: 7
