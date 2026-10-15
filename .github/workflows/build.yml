@@ -8,43 +8,79 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - name: Что в репозитории
+      - name: Разведка
         run: |
-          ls -la
-          echo "--- схемы ---"
-          xcodebuild -list || true
+          {
+            echo "## Файлы в корне"
+            echo '```'
+            ls -la
+            echo '```'
+            echo "## Схемы и таргеты"
+            echo '```'
+            xcodebuild -list 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Сборка
+        id: build
+        continue-on-error: true
         run: |
-          set -e
+          set -o pipefail
           if ls -d *.xcworkspace >/dev/null 2>&1; then
             TARGET=$(ls -d *.xcworkspace | head -1); FLAG="-workspace"
           else
             TARGET=$(ls -d *.xcodeproj | head -1); FLAG="-project"
           fi
-          echo "Проект: $TARGET"
           SCHEME=$(xcodebuild $FLAG "$TARGET" -list -json \
             | python3 -c "import sys,json; d=json.load(sys.stdin); c=d.get('workspace') or d.get('project'); print(c['schemes'][0])")
-          echo "Схема: $SCHEME"
+          echo "Проект: $TARGET, схема: $SCHEME"
+          echo "SCHEME=$SCHEME" >> "$GITHUB_ENV"
           xcodebuild $FLAG "$TARGET" -scheme "$SCHEME" \
             -configuration Release \
             -derivedDataPath build \
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            build
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build 2>&1 | tee build.log
+
+      - name: Показать ошибки
+        if: always()
+        run: |
+          {
+            echo "## Ошибки"
+            echo '```'
+            grep -nE "error:|fatal error|No such module|cannot find|requires a provisioning" build.log | head -40 \
+              || echo "строк error: не найдено"
+            echo '```'
+            echo "## Последние 80 строк лога"
+            echo '```'
+            tail -80 build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Упаковать .app
+        if: steps.build.outcome == 'success'
         run: |
           APP=$(find build/Build/Products -maxdepth 3 -name "*.app" | head -1)
           echo "Собрано: $APP"
           ditto -c -k --keepParent "$APP" Droppy.zip
 
-      - uses: actions/upload-artifact@v4
+      - name: Приложение
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
         with:
           name: Droppy-app
           path: Droppy.zip
+          retention-days: 7
+
+      - name: Лог сборки
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
           retention-days: 7
